@@ -3,6 +3,8 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include "soc/soc.h"             // Required for power stability
+#include "soc/rtc_cntl_reg.h"    // Required for power stability
 
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" 
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -11,16 +13,17 @@
 BLEServer* pServer = NULL;
 bool deviceConnected = false;
 
-// --- HOME TEAM PINS ---
-const int latchPinHome = 3; 
-const int clockPinHome = 4; 
-const int dataPinHome  = 5; 
+// --- HOME TEAM PINS (Updated for ESP32 Dev Board) ---
+// We use GPIO 16, 17, 18 (Safe General Purpose Pins)
+const int latchPinHome = 16; 
+const int clockPinHome = 17; 
+const int dataPinHome  = 18; 
 
-// --- VISITOR TEAM PINS ---
-// TODO: Connect your second chip to these pins (or change them to match your wiring)
-const int latchPinVisitor = 6; 
-const int clockPinVisitor = 7; 
-const int dataPinVisitor  = 8; 
+// --- VISITOR TEAM PINS (Updated for ESP32 Dev Board) ---
+// We use GPIO 25, 26, 27 (Safe, avoided Flash Memory pins 6-11)
+const int latchPinVisitor = 25; 
+const int clockPinVisitor = 26; 
+const int dataPinVisitor  = 27; 
 
 // GAME VARIABLES
 int homeScore = 0;
@@ -40,9 +43,8 @@ byte digitPatterns[10] = {
   0b01101111  // 9
 };
 
-// --- HELPER METHOD (Refactored for reuse) ---
+// --- HELPER METHOD ---
 void writeScoreToChip(int latchPin, int clockPin, int dataPin, int score) {
-  // Boundary check: ensure we only display 0-9 (single digit)
   int safeIndex = abs(score) % 10; 
 
   digitalWrite(latchPin, LOW);
@@ -66,7 +68,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
-      String value = pCharacteristic->getValue();
+      String value = pCharacteristic->getValue().c_str();
 
       if (value.length() >= 2) {
         Serial.print("Cmd: ");
@@ -94,7 +96,6 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         if (visitorScore < 0) visitorScore = 0;
         
         // --- UPDATE HARDWARE ---
-        // We now call the helper method for each specific hardware set
         writeScoreToChip(latchPinHome, clockPinHome, dataPinHome, homeScore);
         writeScoreToChip(latchPinVisitor, clockPinVisitor, dataPinVisitor, visitorScore);
         
@@ -104,6 +105,9 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 };
 
 void setup() {
+  // 1. DISABLE BROWNOUT DETECTOR (Crucial for ESP32 Dev Boards using BLE)
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
+
   Serial.begin(115200);
 
   // Initialize HOME Pins
